@@ -12,7 +12,7 @@ test('learn a position, schedule it, and preserve progress after reloading', asy
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'La firma de la italiana' })).toBeVisible();
   await move(page, 'f1', 'c4');
-  await expect(page.getByText('¡Esa es la jugada!')).toBeVisible();
+  await expect(page.getByText('Correcto', { exact: true })).toBeVisible();
   await expect(page.locator('[data-square="c5"]')).toHaveAttribute('aria-label', /alfil negro/);
   await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Prepará el centro' })).toBeVisible();
@@ -31,16 +31,17 @@ test('legal alternatives are identified without calling them chess errors', asyn
   await expect(page.getByText(/d3 es legal, pero no es la jugada de esta línea/)).toBeVisible();
   await expect(page.locator('[data-square="d2"]')).toHaveAttribute('aria-label', /peón blanco/);
   await move(page, 'f1', 'c4');
-  await expect(page.getByText('La encontraste. Seguí practicando.')).toBeVisible();
+  await expect(page.getByText('Correcto tras un reintento', { exact: true })).toBeVisible();
 });
 
 test('hints, answer reveal, and a due review work', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
-  await page.getByRole('button', { name: 'Una pista', exact: true }).click();
+  await page.getByRole('button', { name: 'Ver solución', exact: true }).click();
   await expect(page.locator('[data-square="f1"]')).toHaveClass(/hint-square/);
-  await page.getByRole('button', { name: 'Ver respuesta' }).click();
-  await expect(page.getByText('Ahora conocés la idea.')).toBeVisible();
+  await expect(page.locator('.board-arrow')).toBeVisible();
+  await move(page, 'f1', 'c4');
+  await expect(page.getByText('Correcto con ayuda', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Otra vez 5 min', exact: true }).click();
   await page.evaluate(() => {
     const state = JSON.parse(localStorage.getItem('cavallo.progress.v1')!);
@@ -49,17 +50,17 @@ test('hints, answer reveal, and a due review work', async ({ page }) => {
   });
   await page.reload();
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
-  await page.getByRole('button', { name: /Para repasar/ }).click();
+  await page.getByRole('button', { name: 'Repasar 1', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'La firma de la italiana' })).toBeVisible();
   await move(page, 'f1', 'c4');
   await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Todo al día por aquí.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sin posiciones pendientes' })).toBeVisible();
 });
 
 test('select a deck and castle by moving the king', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
-  await page.getByRole('button', { name: /Giuoco Pianissimo Sin prisa/ }).click();
+  await page.getByRole('button', { name: /Giuoco Pianissimo/ }).click();
   await expect(page.getByRole('heading', { name: 'Un centro paciente' })).toBeVisible();
   await move(page, 'd2', 'd3');
   await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
@@ -67,7 +68,7 @@ test('select a deck and castle by moving the king', async ({ page }) => {
   await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Primero, tu rey' })).toBeVisible();
   await move(page, 'e1', 'g1');
-  await expect(page.getByText('¡Esa es la jugada!')).toBeVisible();
+  await expect(page.getByText('Correcto', { exact: true })).toBeVisible();
   await expect(page.locator('[data-square="g1"]')).toHaveAttribute('aria-label', /rey blanco/);
   await expect(page.locator('[data-square="f1"]')).toHaveAttribute('aria-label', /torre blanco/);
 });
@@ -76,7 +77,7 @@ test('browse the real database, search, and step through a line', async ({ page 
   await page.goto('/');
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
   await page.getByRole('button', { name: /Biblioteca/ }).first().click();
-  await expect(page.getByRole('heading', { name: '187 caminos para conocer la italiana.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '187 variantes' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Buscar aperturas' }).fill('Canal');
   await page.locator('.opening-list > button').first().click();
   await expect(page.locator('.board-card-header')).toContainText('Canal');
@@ -95,7 +96,7 @@ test('phone layout is usable without horizontal scrolling', async ({ page }) => 
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await move(page, 'f1', 'c4');
-  await expect(page.getByText('¡Esa es la jugada!')).toBeVisible();
+  await expect(page.getByText('Correcto', { exact: true })).toBeVisible();
   await page.screenshot({ path: '/tmp/cavallo-mobile.png', fullPage: true });
 });
 
@@ -106,7 +107,7 @@ test('all five exercises complete a deck and another deck can be started', async
     await move(page, from, to);
     await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
   }
-  await expect(page.getByRole('heading', { name: 'Un paso más en tu repertorio.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Posiciones completadas' })).toBeVisible();
   await page.getByRole('button', { name: 'Continuar con otra variante' }).click();
   await expect(page.getByRole('heading', { name: 'Un centro paciente' })).toBeVisible();
 });
@@ -120,7 +121,7 @@ test('export and import restore a real progress backup', async ({ page }) => {
   await page.getByRole('button', { name: 'Mi progreso', exact: true }).click();
   const downloaded = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Exportar', exact: true }).click();
-  expect((await downloaded).suggestedFilename()).toBe('cavallo-progreso.json');
+  expect((await downloaded).suggestedFilename()).toBe('jane-progreso.json');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
@@ -138,7 +139,7 @@ test('no third-party requests are needed and malformed saved data recovers', asy
   await page.goto('/');
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'La firma de la italiana' })).toBeVisible();
-  await page.getByRole('button', { name: 'Cómo funciona' }).click();
+  await page.getByRole('button', { name: 'Ayuda', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toBeHidden();

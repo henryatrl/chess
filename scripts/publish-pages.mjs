@@ -26,7 +26,7 @@ try {
     console.log('The publication branch already contains this build.');
     process.exit(0);
   }
-  const commit = run('git', ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', 'Publish Cavallo on GitHub Pages']);
+  const commit = run('git', ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', 'Publish jane on GitHub Pages']);
   const push = spawnSync('git', ['push', 'origin', `${commit}:refs/heads/gh-pages`], { cwd: root, stdio: 'inherit' });
   if (push.status !== 0) process.exit(push.status ?? 1);
   console.log('Published the build to gh-pages. GitHub Pages must be enabled for this branch in repository settings.');

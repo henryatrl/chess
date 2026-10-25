@@ -16,13 +16,13 @@ test('the standalone HTML needs no network resources, including its library and 
   await expect(page.getByRole('heading', { name: 'La firma de la italiana' })).toBeVisible();
   await page.locator('[data-square="f1"]').click();
   await page.locator('[data-square="c4"]').click();
-  await expect(page.getByText('¡Esa es la jugada!')).toBeVisible();
+  await expect(page.getByText('Correcto', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Bien 3 días', exact: true }).click();
   await page.reload();
   await page.getByRole('button', { name: 'Tarjetas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Prepará el centro' })).toBeVisible();
   await page.getByRole('button', { name: /Biblioteca/ }).first().click();
-  await expect(page.getByRole('heading', { name: '187 caminos para conocer la italiana.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '187 variantes' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Buscar aperturas' }).fill('Canal');
   await page.locator('.opening-list > button').first().click();
   await expect(page.locator('.board-card-header')).toContainText('Canal');

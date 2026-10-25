@@ -1,6 +1,6 @@
 {
-  "name": "cavallo",
-  "version": "0.1.0",
+  "name": "jane",
+  "version": "0.2.0",
   "description": "",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

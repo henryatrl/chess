@@ -2,9 +2,9 @@ export const STORAGE_KEY = 'cavallo.progress.v1';
 const MAX_INTERVAL = 365 * 86400000;
 const MAX_DATE = 8640000000000000;
 export type Rating = 'again' | 'hard' | 'good' | 'easy';
-export type Review = { due: number; interval: number; repetitions: number; lapses: number };
+export type Review = { due: number; interval: number; repetitions: number; lapses: number; mastered?: boolean };
 export type Event = { cardId: string; time: number; recalled: boolean; rating: Rating };
-export type Progress = { version: 1; reviews: Record<string, Review>; events: Event[] };
+export type Progress = { version: 1; reviews: Record<string, Review>; events: Event[]; daily?: { date: string; ids: string[] } };
 export const emptyProgress = (): Progress => ({ version: 1, reviews: {}, events: [] });
 export function parseProgress(raw: string | null): Progress {
   if (!raw) return emptyProgress();
@@ -14,8 +14,10 @@ export function parseProgress(raw: string | null): Progress {
     for (const r of Object.values(p.reviews) as Review[]) {
       if (!r || ![r.due, r.interval, r.repetitions, r.lapses].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) return emptyProgress();
       if (r.due > MAX_DATE || r.interval > MAX_INTERVAL || !Number.isSafeInteger(r.repetitions) || !Number.isSafeInteger(r.lapses)) return emptyProgress();
+      if (r.mastered !== undefined && typeof r.mastered !== 'boolean') return emptyProgress();
     }
     if (!p.events.every((e: Event) => e && typeof e.cardId === 'string' && Number.isFinite(e.time) && e.time >= 0 && e.time <= MAX_DATE && typeof e.recalled === 'boolean' && ['again', 'hard', 'good', 'easy'].includes(e.rating))) return emptyProgress();
+    if (p.daily !== undefined && (!p.daily || typeof p.daily.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.daily.date) || !Array.isArray(p.daily.ids) || p.daily.ids.length > 10 || !p.daily.ids.every((id: unknown) => typeof id === 'string') || new Set(p.daily.ids).size !== p.daily.ids.length)) delete p.daily;
     return p;
   } catch { return emptyProgress(); }
 }
@@ -30,8 +32,9 @@ export function rateCard(progress: Progress, cardId: string, rating: Rating, rec
   const prev = progress.reviews[cardId];
   const interval = intervalFor(prev, rating);
   return {
+    ...progress,
     version: 1,
-    reviews: { ...progress.reviews, [cardId]: { due: now + interval, interval, repetitions: (prev?.repetitions ?? 0) + 1, lapses: (prev?.lapses ?? 0) + (rating === 'again' ? 1 : 0) } },
+    reviews: { ...progress.reviews, [cardId]: { ...prev, due: now + interval, interval, repetitions: (prev?.repetitions ?? 0) + 1, lapses: (prev?.lapses ?? 0) + (rating === 'again' ? 1 : 0) } },
     events: [...progress.events, { cardId, time: now, recalled, rating }].slice(-5000),
   };
 }

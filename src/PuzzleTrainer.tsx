@@ -1,98 +1,150 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ArrowRight, BookOpen, Check, ChevronRight, Eye, Flame, Lightbulb, RotateCcw, Rotate3d, Target, Trophy, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, Eye, Layers3, RotateCcw, Rotate3d, X } from 'lucide-react';
 import { Chess } from 'chess.js';
 import Board from './Board';
-import { cards } from './data/repertoire';
-import { puzzleGame, puzzleReducer, puzzles, startPuzzle, type PuzzleState } from './puzzles';
+import { puzzleGame, puzzleReducer, startPuzzle, type Puzzle, type PuzzleState } from './puzzles';
+import { batches, studyPuzzles } from './data/study-puzzles';
+import { reviewId } from './study';
 import type { Progress } from './progress';
 import './puzzles.css';
 
-export default function PuzzleTrainer({ progress, onComplete, onLibrary }: { progress: Progress; onComplete: (state: PuzzleState) => void; onLibrary: () => void }) {
-  const [state, dispatch] = useReducer(puzzleReducer, puzzles[0], startPuzzle);
-  const [flipped, setFlipped] = useState(false);
+type Props = {
+  progress: Progress;
+  batchIndex: number | null;
+  onComplete: (state: PuzzleState) => void;
+  onBatches: () => void;
+};
+
+export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatches }: Props) {
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [completed, setCompleted] = useState(0);
-  const [cleanStreak, setCleanStreak] = useState(0);
+  const [practiceAll, setPracticeAll] = useState(false);
+  const [roundDone, setRoundDone] = useState<string[]>([]);
+  const [flipped, setFlipped] = useState(false);
   const [now, setNow] = useState(Date.now);
+  const dailyIds = progress.daily?.ids ?? [];
+  const batch = batchIndex === null
+    ? dailyIds.map(id => studyPuzzles.find(p => p.id === id)).filter((p): p is Puzzle => !!p)
+    : batches[batchIndex] ?? [];
+  const number = (batchIndex ?? batches.findIndex(group => group[0]?.id === dailyIds[0])) + 1;
+  const first = batch.find(p => !progress.reviews[reviewId(p.id)]?.mastered) ?? batch[0] ?? studyPuzzles[0];
+  const [state, dispatch] = useReducer(puzzleReducer, first, startPuzzle);
   const recorded = useRef(-1);
   const boardRef = useRef<HTMLDivElement>(null);
   const game = useMemo(() => puzzleGame(state), [state]);
+  const done = state.phase === 'solved';
+  const due = studyPuzzles.filter(p => progress.reviews[reviewId(p.id)]?.due <= now);
+  const pending = batch.filter(p => !progress.reviews[reviewId(p.id)]?.mastered);
+  const available = reviewOnly ? due : practiceAll ? batch.filter(p => !roundDone.includes(p.id)) : pending;
+  const empty = available.length === 0 && !done;
+  const completed = practiceAll ? roundDone.length : batch.length - pending.length;
   const current = state.puzzle.steps[state.step];
   const expected = useMemo(() => {
     if (state.phase !== 'playing') return undefined;
-    const trial = new Chess(game.fen());
-    return trial.move(current.answer);
+    return new Chess(game.fen()).move(current.answer);
   }, [game, current, state.phase]);
-  const reviewPuzzles = puzzles.filter(puzzle => cards.some(card => card.deck === puzzle.id && progress.reviews[card.id]?.due <= now));
-  const available = reviewOnly ? reviewPuzzles : puzzles;
-  const done = state.phase === 'solved' || state.phase === 'solution';
-  const empty = reviewOnly && available.length === 0 && !done;
-  const correctCount = state.phase === 'solution' ? 0 : state.step;
-  const positionInQueue = available.findIndex(p => p.id === state.puzzle.id);
+  const options = reviewOnly
+    ? [state.puzzle, ...due.filter(p => p.id !== state.puzzle.id)]
+    : batch;
 
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => {
     if (state.phase !== 'opponent') return;
-    const timer = setTimeout(() => dispatch({ type: 'opponent' }), 420);
+    const timer = setTimeout(() => dispatch({ type: 'opponent' }), 360);
     return () => clearTimeout(timer);
   }, [state.phase, state.run, state.step]);
   useEffect(() => {
     if (!done || recorded.current === state.run) return;
     recorded.current = state.run;
     onComplete(state);
-    if (state.phase === 'solved') {
-      setCompleted(n => n + 1);
-      setCleanStreak(n => state.failed.length || state.assisted.length ? 0 : n + 1);
-    } else setCleanStreak(0);
+    if (!reviewOnly && practiceAll) setRoundDone(ids => [...new Set([...ids, state.puzzle.id])]);
   }, [state, done, onComplete]);
+  // A midnight rollover updates the daily batch without replacing an active move.
+  const batchKey = batch.map(p => p.id).join(',');
+  useEffect(() => {
+    if (!reviewOnly && batch.length && !batch.some(p => p.id === state.puzzle.id)) {
+      dispatch({ type: 'reset', puzzle: first });
+    }
+  }, [batchKey, reviewOnly]);
 
   function reset(puzzle = state.puzzle) { dispatch({ type: 'reset', puzzle }); }
   function next() {
-    if (!available.length) { reset(); return; }
-    const nextPuzzle = available[(positionInQueue + 1) % available.length];
-    if (nextPuzzle) reset(nextPuzzle);
+    let nextPuzzle: Puzzle | undefined;
+    if (reviewOnly) nextPuzzle = due[0];
+    else {
+      const i = batch.findIndex(p => p.id === state.puzzle.id);
+      nextPuzzle = [...batch.slice(i + 1), ...batch.slice(0, i + 1)]
+        .find(p => available.some(candidate => candidate.id === p.id));
+    }
+    reset(nextPuzzle ?? state.puzzle);
     if (window.innerWidth < 800) boardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function selectReview(review: boolean) {
+  function selectMode(review: boolean) {
     setReviewOnly(review);
-    reset(review ? reviewPuzzles[0] ?? state.puzzle : puzzles[0]);
+    setPracticeAll(false); setRoundDone([]);
+    reset((review ? due[0] : pending[0]) ?? batch[0] ?? state.puzzle);
   }
+  const status = state.errorSquare ? 'Probá otra vez' : done ? 'Variante completada' : state.phase === 'opponent' ? 'Responden las negras' : 'Tu turno';
 
-  return <section className="puzzle-workspace" aria-label="Puzzles de apertura">
-    <div className="puzzle-heading"><div><span className="puzzle-eyebrow">TU PRÓXIMA BUENA JUGADA</span><h1>Puzzles de aperturas<span>.</span></h1><p>Reconocé el patrón. Completá la línea.</p></div><div className="puzzle-session-stats"><span><Trophy size={18}/><strong>{completed}</strong> resueltos</span><span><Flame size={18}/><strong>{cleanStreak}</strong> sin ayuda seguidos</span></div></div>
-    <div className="puzzle-layout">
-      <div className="puzzle-board-column" ref={boardRef}>
-        <div className="puzzle-opponent"><span className="puzzle-player-icon">♟</span><div><strong>Tu compañero de práctica</strong><small>La italiana · {state.puzzle.eco}</small></div><span className="opponent-label">NEGRAS</span></div>
-        <div className={`puzzle-mobile-status ${state.errorSquare ? 'error' : done ? 'complete' : ''}`}><span>{empty ? 'Sin repasos pendientes' : state.errorSquare ? '↻ Probá otra vez' : state.phase === 'solved' ? '✓ ¡Línea completada!' : state.phase === 'solution' ? 'Solución revelada' : state.phase === 'opponent' ? '✓ Correcto · Responden las negras…' : state.step ? '✓ Correcto · Tu turno' : '♔ Tu turno · Juegan blancas'}</span><strong>{correctCount}/{state.puzzle.steps.length}</strong></div>
-        <div className={`puzzle-board ${state.errorSquare ? 'has-error' : ''} ${state.phase === 'solved' ? 'is-solved' : ''}`}>
-          <Board key={state.run} game={game} onMove={(from, to) => dispatch({ type: 'move', from, to })} disabled={empty || state.phase !== 'playing'} flipped={flipped} hint={state.hintLevel ? expected?.from : undefined} hintTo={state.hintLevel === 2 ? expected?.to : undefined} errorSquare={state.errorSquare} successSquare={state.phase === 'opponent' || state.phase === 'solved' ? game.history({ verbose: true }).filter(m => m.color === 'w').at(-1)?.to : undefined}/>
-        </div>
-        <div className="puzzle-board-toolbar"><div className="puzzle-you"><span className="puzzle-player-icon">♙</span><div><strong>Vos</strong><small>Jugás con blancas</small></div></div><div><button onClick={() => setFlipped(f => !f)} aria-label="Girar tablero" title="Girar tablero"><Rotate3d size={19}/></button><button onClick={() => reset()} aria-label="Reiniciar puzzle" title="Reiniciar puzzle"><RotateCcw size={18}/></button></div></div>
-        {done && <button className="puzzle-primary puzzle-mobile-next" onClick={next}>Siguiente puzzle <ArrowRight size={20}/></button>}
-      </div>
-
-      <div className="puzzle-panel">
-        <div className="puzzle-mode-tabs" role="group" aria-label="Cola de puzzles"><button className={!reviewOnly ? 'active' : ''} onClick={() => selectReview(false)}>Practicar</button><button className={reviewOnly ? 'active' : ''} onClick={() => selectReview(true)}>Mis repasos <span>{reviewPuzzles.length}</span></button></div>
-        <div className="puzzle-panel-content">
-          <div className="puzzle-chapter"><span className="puzzle-chapter-icon">♞</span><div><span>APERTURA ITALIANA</span><label><select aria-label="Variante del puzzle" value={state.puzzle.id} disabled={empty} onChange={e => reset(puzzles.find(p => p.id === e.target.value)!)}>{(empty ? puzzles : available).map(puzzle => <option key={puzzle.id} value={puzzle.id}>{puzzle.title}</option>)}</select></label></div></div>
-
-          {empty ? <div className="puzzle-empty"><Check size={38}/><h2>¡Estás al día!</h2><p>No tenés variantes pendientes. Podés seguir practicando libremente o volver cuando toque un repaso.</p><button className="puzzle-primary" onClick={() => selectReview(false)}>Seguir practicando <ArrowRight size={19}/></button></div> : <>
-            <div className={`puzzle-status ${state.errorSquare ? 'error' : done ? 'finished' : ''}`} role="status" aria-live="polite">
-              <span className="puzzle-status-icon">{state.errorSquare ? <X size={25}/> : done ? state.phase === 'solved' ? <Check size={27}/> : <Eye size={25}/> : state.phase === 'opponent' ? <Check size={24}/> : '♔'}</span>
-              <div><h2>{state.errorSquare ? 'Probá otra vez' : state.phase === 'solved' ? '¡Puzzle completado!' : state.phase === 'solution' ? 'Esta es la solución' : state.phase === 'opponent' ? '¡Buena jugada!' : state.step > 0 ? '¡Correcto! Seguí así' : 'Juegan blancas'}</h2><p>{state.errorSquare ? state.message : done ? state.phase === 'solution' ? 'Reintentá para fijar la secuencia.' : state.failed.length || state.assisted.length ? 'Completaste la línea. Cada intento cuenta.' : 'Toda la línea, sin ayuda. Bien jugado.' : state.phase === 'opponent' ? 'Ahora responde tu rival…' : 'Encontrá la siguiente jugada de esta línea.'}</p></div>
-            </div>
-
-            <div className="puzzle-steps"><div><span>Tu recorrido</span><strong>{Math.min(correctCount, state.puzzle.steps.length)} / {state.puzzle.steps.length} jugadas</strong></div><div className="puzzle-step-dots">{state.puzzle.steps.map((_, i) => <span key={i} className={i < correctCount ? 'complete' : i === state.step && !done ? 'current' : ''} aria-label={`Jugada ${i + 1}${i < correctCount ? ', completada' : ''}`}>{i < correctCount ? <Check size={13}/> : i + 1}</span>)}</div></div>
-
-            {state.hintLevel > 0 && !done && <div className="puzzle-hint" role="note"><Lightbulb size={19}/><p>{current?.hint}{state.hintLevel === 2 && <strong> Seguí la flecha del tablero.</strong>}</p></div>}
-            {state.phase === 'playing' && state.step > 0 && !state.errorSquare && <p className="puzzle-correct-note"><Check size={15}/> La jugada anterior pertenece a la línea.</p>}
-
-            {done ? <div className="puzzle-result"><div className="puzzle-explanation"><span><Lightbulb size={17}/> El plan de esta variante</span><p>{state.puzzle.description}</p></div><div className="puzzle-line" aria-label="Solución de la línea">{state.puzzle.steps.map((step, i) => <span key={i}><b>{(state.puzzle.before.length / 2) + i + 1}.</b> {step.answer} {step.reply}</span>)}</div><details><summary>Entender cada jugada <ChevronRight size={16}/></summary>{state.puzzle.steps.map((step, i) => <p key={i}><strong>{step.answer}.</strong> {step.idea}</p>)}</details><button className="puzzle-primary" onClick={next}>Siguiente puzzle <ArrowRight size={20}/></button><button className="puzzle-retry" onClick={() => reset()}><RotateCcw size={15}/> Volver a intentarlo</button><p className="puzzle-save-note">{state.phase === 'solution' ? 'Programado para repasar en 5 minutos.' : state.failed.length || state.assisted.length ? 'Las posiciones que costaron vuelven antes.' : 'Progreso guardado. Próximo repaso en 3 días.'}</p></div> : <div className="puzzle-thinking"><div className="puzzle-focus-icon"><Target size={28}/></div><p>Las buenas aperturas se aprenden<br/>jugándolas, una y otra vez.</p><div className="puzzle-actions"><button onClick={() => dispatch({ type: 'hint' })} disabled={state.phase !== 'playing' || state.hintLevel === 2}><Lightbulb size={18}/>{state.hintLevel ? 'Mostrar destino' : 'Pedir una pista'}</button><button onClick={() => dispatch({ type: 'reveal' })} disabled={state.phase !== 'playing'}><Eye size={18}/> Ver solución</button></div><span className="puzzle-instruction">Hacé clic o arrastrá las piezas para mover.</span></div>}
-          </>}
-        </div>
-        <button className="puzzle-library-link" onClick={onLibrary}><BookOpen size={17}/><span>Explorá las 187 líneas de la italiana</span><ChevronRight size={16}/></button>
-      </div>
+  return <section className="puzzle-workspace" aria-label="Práctica de variantes">
+    <div className="study-header">
+      <button className="study-batch-link" onClick={onBatches}><Layers3 size={17}/> Lotes <ChevronRight size={14}/> {number > 0 ? `Lote ${number}` : 'Hoy'}</button>
+      <span className="study-batch-count" aria-label="Progreso del lote">{completed}/{batch.length} variantes</span>
     </div>
-    <div className="puzzle-bottom-note"><span><span/> Repertorio con blancas · 3 recorridos completos</span><p>Practicás una línea elegida. Otras jugadas también pueden ser buenas.</p></div>
+    {empty ? <div className="study-empty" role="status">
+      <Check size={30}/>
+      <h1>{reviewOnly ? 'Sin repasos pendientes' : batch.length ? 'Lote completado' : 'Todas las variantes completadas'}</h1>
+      <p>{reviewOnly ? 'Los próximos repasos aparecerán cuando les toque.' : `${completed}/${batch.length} variantes recordadas sin ayuda.`}</p>
+      <button className="puzzle-primary" onClick={onBatches}>Ver lotes <ArrowRight size={18}/></button>
+      {!reviewOnly && batch.length > 0 && <button className="puzzle-secondary" onClick={() => { setPracticeAll(true); setRoundDone([]); reset(batch[0]); }}>Repetir lote</button>}
+      {!reviewOnly && <button className="puzzle-secondary" onClick={() => selectMode(true)}>Repasos ({due.length})</button>}
+    </div> : <div className="puzzle-layout">
+      <div className="puzzle-board-column" ref={boardRef}>
+        <div className="board-turn"><span>{status}</span><span>{state.step}/{state.puzzle.steps.length} jugadas</span></div>
+        <div className={`puzzle-board ${done ? 'is-solved' : ''}`}>
+          <Board key={state.run} game={game} onMove={(from, to) => dispatch({ type: 'move', from, to })}
+            disabled={state.phase !== 'playing'} flipped={flipped}
+            hint={state.hintLevel ? expected?.from : undefined} hintTo={state.hintLevel ? expected?.to : undefined}
+            errorSquare={state.errorSquare}
+            successSquare={state.phase === 'opponent' || done ? game.history({ verbose: true }).filter(m => m.color === 'w').at(-1)?.to : undefined}/>
+        </div>
+        <div className="puzzle-board-toolbar"><span>Blancas</span><div>
+          <button onClick={() => setFlipped(f => !f)} aria-label="Girar tablero" title="Girar tablero"><Rotate3d size={18}/></button>
+          <button onClick={() => reset()} aria-label="Reiniciar variante" title="Reiniciar variante"><RotateCcw size={17}/></button>
+        </div></div>
+        {done && <button className="puzzle-primary mobile-next" onClick={next}>{available.length ? 'Siguiente' : 'Terminar lote'}<ArrowRight size={18}/></button>}
+      </div>
+      <div className="puzzle-panel">
+        <div className="puzzle-mode-tabs" role="group" aria-label="Cola de práctica">
+          <button className={!reviewOnly ? 'active' : ''} onClick={() => selectMode(false)}>Lote {number || ''}</button>
+          <button className={reviewOnly ? 'active' : ''} onClick={() => selectMode(true)}>Repasos <span>{due.length}</span></button>
+        </div>
+        <div className="puzzle-panel-content">
+          <label className="variant-select"><select aria-label="Variante del lote" value={state.puzzle.id} onChange={e => reset(studyPuzzles.find(p => p.id === e.target.value)!)}>
+            {options.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select></label>
+          <div className={`puzzle-status ${state.errorSquare ? 'error' : done ? 'finished' : ''}`} role="status" aria-live="polite">
+            <span className="puzzle-status-icon">{state.errorSquare ? <X size={22}/> : done ? <Check size={24}/> : '♔'}</span>
+            <div><h1>{status}</h1>{state.errorSquare && <p>{state.message}</p>}</div>
+          </div>
+          <div className="study-line-progress" aria-label="Jugadas completadas"><span style={{ width: `${state.step / state.puzzle.steps.length * 100}%` }}/></div>
+          {done ? <div className="puzzle-result">
+            {(state.assisted.length > 0 || state.failed.length > 0) && <p>Pendiente de repetir sin ayuda.</p>}
+            <button className="puzzle-primary desktop-next" onClick={next}>{available.length ? 'Siguiente' : 'Terminar lote'}<ArrowRight size={18}/></button>
+            <button className="puzzle-retry" onClick={() => reset()}><RotateCcw size={15}/> Repetir</button>
+            <details><summary>Jugadas <ChevronRight size={15}/></summary><div className="puzzle-line">{state.puzzle.steps.map((step, i) => <span key={i}>{state.puzzle.before.length / 2 + i + 1}. {step.answer} {step.reply}</span>)}</div>
+              {state.puzzle.description && <p>{state.puzzle.description}</p>}
+              {state.puzzle.steps.filter(step => step.idea).map((step, i) => <p key={i}><strong>{step.answer}.</strong> {step.idea}</p>)}
+            </details>
+          </div> : <div className="next-step-solution">
+            <button className="puzzle-secondary" onClick={() => dispatch({ type: 'reveal' })} disabled={state.phase !== 'playing' || !!state.hintLevel}><Eye size={17}/> Ver solución</button>
+            {state.hintLevel > 0 && <div className="current-answer" role="note"><strong>{current.answer}</strong><span>{expected?.from} → {expected?.to}</span></div>}
+          </div>}
+          <details className="batch-contents"><summary>Variantes del lote <ChevronRight size={15}/></summary><ol>{batch.map(p => <li key={p.id}><button onClick={() => { setReviewOnly(false); reset(p); }} className={state.puzzle.id === p.id ? 'active' : ''}><span>{p.title}</span>{progress.reviews[reviewId(p.id)]?.mastered && <Check size={14}/>}</button></li>)}</ol></details>
+        </div>
+      </div>
+    </div>}
   </section>;
 }
