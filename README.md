@@ -9,6 +9,7 @@ La página publicada está en **https://henryatrl.github.io/chess/**.
 - **Entrenar** abre el lote recomendado para hoy.
 - **Lotes** permite abrir cualquiera de los **18 grupos de 10 variantes**. Cada tarjeta muestra su avance. Podés practicar otros lotes por elección y repetir los completados.
 - **Ver solución** muestra solo la jugada actual, con notación, origen, destino y una flecha. No mueve las piezas ni revela el resto de la línea. Después de hacerla, la ayuda desaparece para la siguiente jugada.
+- **← / →** recorre las posiciones ya conocidas, incluida la posición inicial de la variante y las respuestas que ya jugó el rival. También hay botones bajo el tablero. El avance se detiene en la última jugada realizada; no revela movimientos pendientes. Mientras mirás el historial no se pueden mover piezas. **Volver a la actual** retoma la resolución sin cambiar el progreso. Los atajos no interfieren con campos de texto, selectores ni la ayuda.
 - Una variante se considera aprendida cuando se completa sin ayuda ni intentos legales fuera de la línea. Si costó, sigue pendiente en el lote y se programa un repaso en 5 minutos.
 - Al completar un lote, se muestra su resumen. No se introduce automáticamente una variante número once.
 - **Repasos** es una cola separada con las variantes vencidas. Un repaso limpio comienza con 3 días y amplía el intervalo en repasos posteriores. Una variante ya aprendida conserva su historial aunque después requiera ayuda.

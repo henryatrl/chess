@@ -43,6 +43,11 @@
 .puzzle-board-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;font-size:11px;color:#bfc4b0}
 .puzzle-board-toolbar>div{display:flex;gap:14px}
 .puzzle-board-toolbar button{display:grid;place-items:center;background:none;padding:5px;color:#c0c5b0}
+.puzzle-board-toolbar .move-navigation{display:flex;align-items:center;gap:3px}
+.move-navigation .history-position{min-width:72px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;color:#d5dcc6;white-space:nowrap}
+.move-navigation button{min-width:30px;min-height:30px;border-radius:4px}
+.move-navigation button:disabled{opacity:.3}
+.return-to-live{margin-top:20px}
 .puzzle-panel{background:#272622;border-radius:8px;border:1px solid #414035;min-width:0;overflow:hidden;margin-top:30px}
 .puzzle-mode-tabs{display:flex;background:#24231f;border-bottom:1px solid #403f32}
 .puzzle-mode-tabs>button{width:50%;display:flex;align-items:center;justify-content:center;gap:7px;background:none;padding:16px 6px;color:#bcc0aa;font-size:12px;border-bottom:2px solid transparent}

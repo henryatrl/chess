@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, Eye, Layers3, RotateCcw, Rotate3d, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, History, Layers3, RotateCcw, Rotate3d, X } from 'lucide-react';
 import { Chess } from 'chess.js';
 import Board from './Board';
 import { puzzleGame, puzzleReducer, startPuzzle, type Puzzle, type PuzzleState } from './puzzles';
@@ -28,9 +28,23 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
   const number = (batchIndex ?? batches.findIndex(group => group[0]?.id === dailyIds[0])) + 1;
   const first = batch.find(p => !progress.reviews[reviewId(p.id)]?.mastered) ?? batch[0] ?? studyPuzzles[0];
   const [state, dispatch] = useReducer(puzzleReducer, first, startPuzzle);
+  // A separate cursor previews known positions without changing the exercise state.
+  // Associate it with the run so switching/restarting a variant returns to live play.
+  const [historyView, setHistoryView] = useState<{ run: number; ply: number | null }>({ run: -1, ply: null });
   const recorded = useRef(-1);
   const boardRef = useRef<HTMLDivElement>(null);
   const game = useMemo(() => puzzleGame(state), [state]);
+  const knownMoves = useMemo(() => game.history(), [game]);
+  const livePly = knownMoves.length;
+  const viewPly = historyView.run === state.run && historyView.ply !== null ? Math.min(historyView.ply, livePly) : livePly;
+  const browsing = viewPly < livePly;
+  const displayedGame = useMemo(() => {
+    if (!browsing) return game;
+    const previous = new Chess();
+    knownMoves.slice(0, viewPly).forEach(move => previous.move(move));
+    return previous;
+  }, [game, knownMoves, viewPly, browsing]);
+  const moveLabel = viewPly === 0 ? 'Inicio' : `${Math.ceil(viewPly / 2)}${viewPly % 2 ? '.' : '…'} ${knownMoves[viewPly - 1]}`;
   const done = state.phase === 'solved';
   const due = studyPuzzles.filter(p => progress.reviews[reviewId(p.id)]?.due <= now);
   const pending = batch.filter(p => !progress.reviews[reviewId(p.id)]?.mastered);
@@ -45,6 +59,30 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
   const options = reviewOnly
     ? [state.puzzle, ...due.filter(p => p.id !== state.puzzle.id)]
     : batch;
+
+  const navigateHistory = useCallback((direction: number) => {
+    setHistoryView(previous => {
+      const current = previous.run === state.run && previous.ply !== null ? Math.min(previous.ply, livePly) : livePly;
+      const ply = Math.max(0, Math.min(livePly, current + direction));
+      return { run: state.run, ply: ply === livePly ? null : ply };
+    });
+  }, [state.run, livePly]);
+  function returnToLive() { setHistoryView({ run: state.run, ply: null }); }
+
+  useEffect(() => {
+    if (empty) return;
+    function handleArrow(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="listbox"], [role="menu"]')) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      navigateHistory(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+    window.addEventListener('keydown', handleArrow);
+    return () => window.removeEventListener('keydown', handleArrow);
+  }, [empty, navigateHistory]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -86,7 +124,7 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
     setPracticeAll(false); setRoundDone([]);
     reset((review ? due[0] : pending[0]) ?? batch[0] ?? state.puzzle);
   }
-  const status = state.errorSquare ? 'Probá otra vez' : done ? 'Variante completada' : state.phase === 'opponent' ? 'Responden las negras' : 'Tu turno';
+  const status = browsing ? 'Historial' : state.errorSquare ? 'Probá otra vez' : done ? 'Variante completada' : state.phase === 'opponent' ? 'Responden las negras' : 'Tu turno';
 
   return <section className="puzzle-workspace" aria-label="Práctica de variantes">
     <div className="study-header">
@@ -103,14 +141,20 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
     </div> : <div className="puzzle-layout">
       <div className="puzzle-board-column" ref={boardRef}>
         <div className="board-turn"><span>{status}</span><span>{state.step}/{state.puzzle.steps.length} jugadas</span></div>
-        <div className={`puzzle-board ${done ? 'is-solved' : ''}`}>
-          <Board key={state.run} game={game} onMove={(from, to) => dispatch({ type: 'move', from, to })}
-            disabled={state.phase !== 'playing'} flipped={flipped}
-            hint={state.hintLevel ? expected?.from : undefined} hintTo={state.hintLevel ? expected?.to : undefined}
-            errorSquare={state.errorSquare}
-            successSquare={state.phase === 'opponent' || done ? game.history({ verbose: true }).filter(m => m.color === 'w').at(-1)?.to : undefined}/>
+        <div className={`puzzle-board ${done && !browsing ? 'is-solved' : ''}`}>
+          <Board key={`${state.run}:${viewPly}`} game={displayedGame} onMove={(from, to) => { if (!browsing) dispatch({ type: 'move', from, to }); }}
+            disabled={browsing || state.phase !== 'playing'} flipped={flipped}
+            hint={!browsing && state.hintLevel ? expected?.from : undefined} hintTo={!browsing && state.hintLevel ? expected?.to : undefined}
+            errorSquare={browsing ? undefined : state.errorSquare}
+            successSquare={!browsing && (state.phase === 'opponent' || done) ? game.history({ verbose: true }).filter(m => m.color === 'w').at(-1)?.to : undefined}/>
         </div>
-        <div className="puzzle-board-toolbar"><span>Blancas</span><div>
+        <div className="puzzle-board-toolbar"><span>Blancas</span>
+          <div className="move-navigation" role="group" aria-label="Historial de jugadas">
+            <button onClick={() => navigateHistory(-1)} disabled={viewPly === 0} aria-label="Jugada anterior" title="Jugada anterior (←)"><ChevronLeft size={20}/></button>
+            <span className="history-position" aria-live="polite" aria-label="Posición del historial">{moveLabel}</span>
+            <button onClick={() => navigateHistory(1)} disabled={!browsing} aria-label="Jugada siguiente" title="Jugada siguiente (→)"><ChevronRight size={20}/></button>
+          </div>
+          <div>
           <button onClick={() => setFlipped(f => !f)} aria-label="Girar tablero" title="Girar tablero"><Rotate3d size={18}/></button>
           <button onClick={() => reset()} aria-label="Reiniciar variante" title="Reiniciar variante"><RotateCcw size={17}/></button>
         </div></div>
@@ -125,11 +169,12 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
           <label className="variant-select"><select aria-label="Variante del lote" value={state.puzzle.id} onChange={e => reset(studyPuzzles.find(p => p.id === e.target.value)!)}>
             {options.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
           </select></label>
-          <div className={`puzzle-status ${state.errorSquare ? 'error' : done ? 'finished' : ''}`} role="status" aria-live="polite">
-            <span className="puzzle-status-icon">{state.errorSquare ? <X size={22}/> : done ? <Check size={24}/> : '♔'}</span>
-            <div><h1>{status}</h1>{state.errorSquare && <p>{state.message}</p>}</div>
+          <div className={`puzzle-status ${!browsing && state.errorSquare ? 'error' : done && !browsing ? 'finished' : ''}`} role="status" aria-live="polite">
+            <span className="puzzle-status-icon">{browsing ? <History size={21}/> : state.errorSquare ? <X size={22}/> : done ? <Check size={24}/> : '♔'}</span>
+            <div><h1>{status}</h1>{!browsing && state.errorSquare && <p>{state.message}</p>}</div>
           </div>
           <div className="study-line-progress" aria-label="Jugadas completadas"><span style={{ width: `${state.step / state.puzzle.steps.length * 100}%` }}/></div>
+          {browsing && <button className="puzzle-secondary return-to-live" onClick={returnToLive}>Volver a la actual <ArrowRight size={17}/></button>}
           {done ? <div className="puzzle-result">
             {(state.assisted.length > 0 || state.failed.length > 0) && <p>Pendiente de repetir sin ayuda.</p>}
             <button className="puzzle-primary desktop-next" onClick={next}>{available.length ? 'Siguiente' : 'Terminar lote'}<ArrowRight size={18}/></button>
@@ -138,7 +183,7 @@ export default function PuzzleTrainer({ progress, batchIndex, onComplete, onBatc
               {state.puzzle.description && <p>{state.puzzle.description}</p>}
               {state.puzzle.steps.filter(step => step.idea).map((step, i) => <p key={i}><strong>{step.answer}.</strong> {step.idea}</p>)}
             </details>
-          </div> : <div className="next-step-solution">
+          </div> : !browsing && <div className="next-step-solution">
             <button className="puzzle-secondary" onClick={() => dispatch({ type: 'reveal' })} disabled={state.phase !== 'playing' || !!state.hintLevel}><Eye size={17}/> Ver solución</button>
             {state.hintLevel > 0 && <div className="current-answer" role="note"><strong>{current.answer}</strong><span>{expected?.from} → {expected?.to}</span></div>}
           </div>}
